@@ -1,0 +1,6 @@
+model: BPR
+dataset: ml-100k
+state: "ERROR"
+show_progress: false
+data_path: data/
+checkpoint_dir: saved/

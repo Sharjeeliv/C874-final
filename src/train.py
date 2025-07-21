@@ -63,7 +63,7 @@ def train_test(dataset_name='ml-100k'):
     print(f"\033[93mDataset: {dataset_name}\033[0m")
 
     for model_name, model_class in MODELS.items():
-        print(f"\033[93Model: {model_name}\033[0m")
+        print(f"\033[93mModel: {model_name}\033[0m")
 
         # Step 1: Tune and get Config
         config = hyperparameter_tuning(model_name, dataset_name)

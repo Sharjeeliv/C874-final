@@ -4,8 +4,9 @@ import yaml
 ROOT_PATH = Path(__file__).resolve().parent.parent
 
 
-
-# turned ordered dict into output file
+# *****************************
+# HELPER FUNCTIONS
+# *****************************
 def print_results(results, output_file):
     if not Path(output_file).is_absolute():
         output_file = ROOT_PATH / output_file

@@ -4,3 +4,4 @@ state: "ERROR"
 show_progress: false
 data_path: ROOT_PATH/data/
 checkpoint_dir: ROOT_PATH/log/saved/
+reproducibility: true
