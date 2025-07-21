@@ -3,16 +3,45 @@ import yaml
 
 ROOT_PATH = Path(__file__).resolve().parent.parent
 
+
+
+# turned ordered dict into output file
+def print_results(results, output_file):
+    if not Path(output_file).is_absolute():
+        output_file = ROOT_PATH / output_file
+    with open(output_file, 'w') as file:
+        for key, value in results.items():
+            file.write(f"{key}: {value}\n")
+    print(f"Results saved to {output_file}")
+
+
+def del_dir(directory):
+    if not Path(directory).is_absolute():
+        directory = ROOT_PATH / directory
+    if Path(directory).exists():
+        for item in directory.iterdir():
+            if item.is_dir(): del_dir(item)
+            else: item.unlink()
+        directory.rmdir()
+    print(f"Deleted directory: {directory}")
+
+
+# *****************************
+# CONFIG HELPER FUNCTIONS
+# *****************************
+def write_yaml(file_path, data):
+    if not Path(file_path).is_absolute():
+        file_path = ROOT_PATH / file_path
+    with open(file_path, 'w') as file:
+        yaml.dump(data, file, default_flow_style=False)
+
+def del_yaml(file_path):
+    if not Path(file_path).is_absolute():
+        file_path = ROOT_PATH / file_path
+    if Path(file_path).exists():
+        Path(file_path).unlink()
+
 def load_config(file_path):
-    """
-    Load a YAML configuration file.
-
-    Args:
-        file_path (str): Path to the YAML file.
-
-    Returns:
-        dict: Configuration parameters as a dictionary.
-    """
     if not Path(file_path).is_absolute():
         file_path = ROOT_PATH / file_path
 

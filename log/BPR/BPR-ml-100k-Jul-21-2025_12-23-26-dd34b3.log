@@ -1,8 +1,0 @@
-Mon 21 Jul 2025 12:23:26 INFO  Dataset: ml-100k
-The number of users: 944
-Average actions of users: 106.04453870625663
-The number of items: 1683
-Average actions of items: 59.45303210463734
-The number of inters: 100000
-The sparsity of the dataset: 93.70575143257098%
-Remain Fields: ['user_id', 'item_id', 'rating', 'timestamp']
