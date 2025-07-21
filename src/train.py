@@ -49,7 +49,7 @@ def hyperparameter_tuning(model_name, dataset):
     del_yaml(temp_config)
     merged_config = {**base_config, **hp.best_params}
     merged_config['state'] = str(base_config['state'])
-    config = Config(model=model_name, dataset=dataset, config_dict=hp.best_params)
+    config = Config(model=model_name, dataset=dataset, config_dict=merged_config)
     return config
 
 
@@ -93,9 +93,9 @@ def train_test(dataset_name='ml-100k'):
         result = trainer.evaluate(test_data)
         result_file = results_dir / f"{model_name}_{dataset_name}_result.yaml"
         print_results(result, result_file)
-        # Clear logs
-        del_dir('saved')
-        del_dir('log_tensorboard')
+    # Clear logs
+    del_dir('saved')
+    del_dir('log_tensorboard')
 
 
 # *****************************

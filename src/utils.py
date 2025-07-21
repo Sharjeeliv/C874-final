@@ -23,7 +23,6 @@ def del_dir(directory):
             if item.is_dir(): del_dir(item)
             else: item.unlink()
         directory.rmdir()
-    print(f"Deleted directory: {directory}")
 
 
 # *****************************
