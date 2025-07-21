@@ -43,14 +43,24 @@ def write_yaml(file_path, data):
 def hyperparameter_tuning(model_name, dataset):
     base_config = load_config(ROOT_PATH / 'config' / 'config.yaml')
     write_yaml(ROOT_PATH / 'config' / 'temp.config', base_config)
+    params_file=ROOT_PATH / 'config' / 'model.hyper'
 
-
-    print('config_dict: ', base_config)
+    # print('config_dict: ', base_config)
+    # hp = HyperTuning(
+    #     objective_function=objective_function,
+    #     algo='exhaustive',
+    #     params_file=ROOT_PATH / 'config' / 'model.hyper',
+    #     fixed_config_file_list= [ROOT_PATH / 'config' / 'temp.config']
+    # )
+    config_dict = {'model': model_name, 'dataset': dataset}
+    
     hp = HyperTuning(
         objective_function=objective_function,
         algo='exhaustive',
-        params_file=ROOT_PATH / 'config' / 'model.hyper',
-        fixed_config_file_list= [ROOT_PATH / 'config' / 'temp.config']
+        early_stop=10,
+        max_evals=100,
+        params_file=params_file,
+        fixed_config_file_list=[ROOT_PATH / 'config' / 'temp.yaml'],
     )
 
         # Inject model and dataset
