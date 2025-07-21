@@ -1,0 +1,6 @@
+model: BPR
+dataset: ml-100k
+state: "Info"
+show_progress: false
+data_path: ROOT_PATH/data/
+checkpoint_dir: ROOT_PATH/log/saved/

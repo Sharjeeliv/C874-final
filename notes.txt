@@ -1,9 +1,0 @@
-TODO:
-- Find a large dataset
-    - Analyze dataset
-    - Determine feasability and research questions
-- Identify key baselines
-- Implement baselines
-- Develop training pipeline
-- Determine scoring mechanism
-- Consider hybridization and augmentation techniques
