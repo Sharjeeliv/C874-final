@@ -1,10 +1,13 @@
 import argparse
 import json
+import os
+import textwrap
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
-from collections import Counter
+from collections import Counter, defaultdict
 from itertools import combinations
 
 def load_data(users_path, games_path, recs_path, meta_path):
@@ -31,6 +34,7 @@ def load_data(users_path, games_path, recs_path, meta_path):
                     continue
     return users, games, recs, meta
 
+"""
 def plot_user_stats(users):
     # number of products per user
     plt.figure()
@@ -137,8 +141,57 @@ def plot_recommendation_stats(recs):
     plt.title('Temporal Trend of Recommendations')
     plt.savefig("Figures/recstemporal")
     plt.clf()
+"""
 
-def plot_bipartite_graph_stats(recs, sample_size=10000, top_n=30):
+def plot_rating_dist(recs):
+    counts = recs['is_recommended'].value_counts()
+    sizes = [counts.get(True, 0), counts.get(False, 0)]
+    labels = ['Recommended', 'Not Recommended']
+    colors = ['tab:cyan', 'tab:red']
+    explode = (0.05, 0.05)  # offset both slices slightly
+
+    plt.figure(figsize=(8, 8))
+    wedges, texts, autotexts = plt.pie(
+        sizes,
+        explode=explode,
+        labels=labels,
+        colors=colors,
+        autopct='%1.1f%%',
+        startangle=90,
+        pctdistance=0.80,
+        wedgeprops=dict(width=0.3, edgecolor='white'),
+        textprops=dict(color='black', fontsize=12, weight='bold'),
+        shadow=True
+    )
+
+    # Draw a circle at the center to make it a donut
+    centre_circle = plt.Circle((0, 0), 0.50, fc='white')
+    plt.gca().add_artist(centre_circle)
+
+    # Legend outside
+    plt.legend(
+        wedges,
+        labels,
+        title="Review Label",
+        loc="center",
+        bbox_to_anchor=(1, 0, 0.5, 1)
+    )
+
+    plt.title('Recommendation Label Distribution', fontsize=14, weight='bold')
+    plt.axis('equal')  # keep it circular
+
+    out_path = os.path.join('Figures', "label_distribution_pie.png")
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+def plot_bipartite_graph_stats(recs, games, sample_size=10000, top_n=30, min_user_overlap_games=2,
+        sample_users=None,
+        normalize=None,      # None | "jaccard" | "cosine"
+        out_dir="Figures",
+        max_label_len=20,
+        include_id=False, wrap_labels=False, dpi=150):
+
     subsample = recs.sample(n=min(sample_size, len(recs)), random_state=42)
 
     G = nx.Graph()
@@ -160,7 +213,7 @@ def plot_bipartite_graph_stats(recs, sample_size=10000, top_n=30):
     plt.xlabel('User Degree')
     plt.ylabel('Count')
     plt.title('User Degree Distribution (Subsampled)')
-    plt.savefig("Figures/userdist")
+    #plt.savefig("Figures/userdist")
     plt.clf()
 
     plt.figure()
@@ -168,61 +221,141 @@ def plot_bipartite_graph_stats(recs, sample_size=10000, top_n=30):
     plt.xlabel('Game Degree')
     plt.ylabel('Count')
     plt.title('Game Degree Distribution (Subsampled)')
-    plt.savefig("Figures/gamedist")
+    #plt.savefig("Figures/gamedist")
     plt.clf()
 
-    interactions = subsample[recs['is_recommended'] == True]
+    # --- Mapping app_id -> title ---
+    id2title = dict(zip(games['app_id'], games['title']))
 
-    # 2. build binary user × game pivot
-    pivot = (
-        interactions
-        .assign(interact=1)
-        .pivot_table(index='user_id',
-                     columns='app_id',
-                     values='interact',
-                     aggfunc='sum',
-                     fill_value=0)
-        .clip(0, 1)  # ensure binary
-    )
+    # 1. Positive interactions only
+    pos = recs[recs['is_recommended'] == True]
+    if pos.empty:
+        print("[CoPlay] No positive interactions found.")
+        return
 
-    # 3. pick the top-N most-interacted games
-    game_counts = pivot.sum(axis=0)
+    # 2. Top-N games
+    game_counts = pos['app_id'].value_counts()
     top_games = game_counts.nlargest(top_n).index.tolist()
-    mat = pivot[top_games]
+    actual_top_n = len(top_games)
+    print(f"[CoPlay] Using top {actual_top_n} games for heatmap.")
 
-    # 4. compute co-play matrix
-    co_matrix = mat.T.dot(mat).values  # shape (top_n, top_n)
-    np.fill_diagonal(co_matrix, 0)  # zero out self-cooccurrence
+    # 3. Per-user restricted lists
+    user_games = defaultdict(list)
+    sub = pos[pos['app_id'].isin(top_games)][['user_id', 'app_id']]
+    for uid, gid in zip(sub['user_id'].values, sub['app_id'].values):
+        user_games[uid].append(gid)
 
-    # 5. order by total co-plays (optional: cluster for block structure)
-    order = np.argsort(game_counts[top_games])[::-1]
-    co_matrix = co_matrix[order][:, order]
-    labels = [top_games[i] for i in order]
+    # Filter users by min overlap
+    filtered_users = [u for u, glist in user_games.items()
+                      if len(set(glist)) >= min_user_overlap_games]
 
-    # 6. plot
-    plt.figure(figsize=(8, 8))
-    im = plt.imshow(co_matrix, interpolation='nearest')
-    plt.xticks(range(top_n), labels, rotation='vertical')
-    plt.yticks(range(top_n), labels)
-    plt.colorbar(im, label='Number of shared users')
-    plt.title(f'Co-play Heatmap (Top {top_n} Games by Play Count)')
+    # Optional sampling
+    if sample_users is not None and len(filtered_users) > sample_users:
+        rng = np.random.default_rng(42)
+        filtered_users = rng.choice(filtered_users, size=sample_users, replace=False)
+        print(f"[CoPlay] Sampled {len(filtered_users)} users (from {len(user_games)} candidates).")
+    else:
+        print(f"[CoPlay] Using {len(filtered_users)} qualifying users.")
+
+    if len(filtered_users) == 0:
+        print("[CoPlay] No users meet the overlap criterion; aborting heatmap.")
+        return
+
+    # 4. Build index map & count
+    idx_map = {g: i for i, g in enumerate(top_games)}
+    co_matrix = np.zeros((actual_top_n, actual_top_n), dtype=np.int32)
+    game_user_count = np.zeros(actual_top_n, dtype=np.int32)
+
+    for u in filtered_users:
+        glist = list({g for g in user_games[u] if g in idx_map})
+        for g in glist:
+            game_user_count[idx_map[g]] += 1
+        if len(glist) > 1:
+            for g1, g2 in combinations(glist, 2):
+                i, j = idx_map[g1], idx_map[g2]
+                co_matrix[i, j] += 1
+                co_matrix[j, i] += 1
+
+    # 5. Normalization (optional)
+    if normalize == "jaccard":
+        a = game_user_count.reshape(-1, 1)
+        denom = (a + a.T - co_matrix).astype(float)
+        denom[denom == 0] = 1.0
+        norm_matrix = co_matrix / denom
+        metric_label = "Jaccard Similarity"
+        fname_suffix = "jaccard"
+    elif normalize == "cosine":
+        a = game_user_count.reshape(-1, 1)
+        denom = np.sqrt(a * a.T).astype(float)
+        denom[denom == 0] = 1.0
+        norm_matrix = co_matrix / denom
+        metric_label = "Cosine Similarity"
+        fname_suffix = "cosine"
+    else:
+        norm_matrix = co_matrix
+        metric_label = "Shared Users"
+        fname_suffix = "shared"
+
+    np.fill_diagonal(norm_matrix, 0)
+
+    # 6. Prepare labels (titles)
+    def format_label(app_id):
+        title = id2title.get(app_id, str(app_id))
+        if wrap_labels:
+            # crude wrap
+            wrapped = "\n".join(textwrap.wrap(title, width=max_label_len))
+            truncated = wrapped
+        else:
+            truncated = (title[:max_label_len] + "…") if len(title) > max_label_len else title
+        if include_id:
+            truncated += f" ({app_id})"
+        return truncated
+
+    labels = [format_label(g) for g in top_games]
+
+    # 7. Plot
+    plt.figure(figsize=(max(8, actual_top_n * 0.4), max(8, actual_top_n * 0.4)))
+    im = plt.imshow(norm_matrix, cmap="viridis", interpolation="nearest")
+    plt.xticks(range(actual_top_n), labels, rotation=90)
+    plt.yticks(range(actual_top_n), labels)
+    plt.colorbar(im, label=metric_label)
+    plt.title(f"Co-play Heatmap (Top {actual_top_n} Games) — {metric_label}")
     plt.tight_layout()
-    plt.show()
+
+    out_path = os.path.join(out_dir, f"co_play_heatmap_top{actual_top_n}_{fname_suffix}.png")
+    plt.savefig(out_path, dpi=dpi)
+    plt.close()
+    print(f"[CoPlay] Saved heatmap with titles to {out_path}")
+
+
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--users', required=True)
-    p.add_argument('--games', required=True)
-    p.add_argument('--recs', required=True)
-    p.add_argument('--meta', required=True)
+    p.add_argument('--users', required=False)
+    p.add_argument('--games', required=False)
+    p.add_argument('--recs', required=False)
+    p.add_argument('--meta', required=False)
     args = p.parse_args()
 
-    users, games, recs, meta = load_data(args.users, args.games, args.recs, args.meta)
+    users, games, recs, meta = load_data('users.csv', 'games.csv'
+                                         , 'recommendations.csv', 'games_metadata.json')
 
-    plot_user_stats(users)
-    plot_game_metadata(games)
-    plot_recommendation_stats(recs)
-    plot_bipartite_graph_stats(recs)
+
+    #plot_user_stats(users)
+    #plot_game_metadata(games)
+    #plot_recommendation_stats(recs)
+    plot_rating_dist(recs)
+    """plot_bipartite_graph_stats(recs,
+        games,
+        top_n=30,
+        min_user_overlap_games=6,
+        sample_users=3709628,  # adjust or None
+        normalize=None,  # "cosine", "jaccard",  or None
+        out_dir="Figures",
+        max_label_len=20,
+        include_id=False,
+        wrap_labels=False
+    )"""
 
 if __name__ == '__main__':
     main()
