@@ -36,14 +36,21 @@ def hyperparameter_tuning(model_name, dataset):
     param_file = ROOT_PATH / 'config' / 'model.hyper'
     hp = HyperTuning(
         objective_function=objective_function,
-        algo='exhaustive',
+        algo='random',
         params_file=param_file,
+        max_evals=50,
+        early_stop=5,
         fixed_config_file_list=[temp_config]
     )
     # Run hyperparameter tuning
     hp.run()
     print('Best Params:', hp.best_params)
     print('Best Result:')
+    # Save parameters to auto load from file
+    param_dir = ROOT_PATH / 'config' / 'params'
+    param_dir.mkdir(exist_ok=True)
+    path = param_dir / f"{model_name}_{dataset}_params.yaml"
+    write_yaml(path, hp.best_params)
     print(hp.params2result[hp.params2str(hp.best_params)])
     # Clean up temporary config file and return
     del_yaml(temp_config)
@@ -56,7 +63,7 @@ def hyperparameter_tuning(model_name, dataset):
 # *****************************
 # MAIN TRAIN-TEST FUNCTION
 # *****************************
-def train_test(dataset_name='ml-100k'):
+def train_test(dataset_name='ml-100k', tune=True):
 
     results_dir = ROOT_PATH / "results"
     results_dir.mkdir(exist_ok=True)
@@ -66,23 +73,29 @@ def train_test(dataset_name='ml-100k'):
         print(f"\033[93mModel: {model_name}\033[0m")
 
         # Step 1: Tune and get Config
-        config = hyperparameter_tuning(model_name, dataset_name)
+        if tune:
+            print("\033[92mTuning hyperparameters...\033[0m")
+            config = hyperparameter_tuning(model_name, dataset_name)
+        else:
+            param_dir = ROOT_PATH / 'config' / 'params'
+            param_file = param_dir / f"{model_name}_{dataset_name}_params.yaml"
+            if not param_file.exists(): 
+                raise FileNotFoundError(f"Parameter file not found: {param_file}")
+            print("\033[92mLoading hyperparameters...\033[0m")
+            base_config = load_config(ROOT_PATH / 'config' / 'config.yaml')
+            config = {**base_config, **load_config(param_file)}
+            config = Config(model=model_name, dataset=dataset_name, config_dict=config)
 
         print(f"\033[92mTuned Config: {config}\033[0m")
         # Step 2: Init seed/logger
         init_seed(config['seed'], config['reproducibility'])
-        # init_logger(config)
-        # logger = getLogger()
-        # logger.info(config)
 
         # Step 3: Prepare dataset using the tuned config
         dataset = create_dataset(config)
-        # logger.info("Dataset loaded: {}".format(dataset))
         train_data, valid_data, test_data = data_preparation(config, dataset)
 
         # Step 4: Model initialization
         model = model_class(config, train_data._dataset).to(config['device'])
-        # logger.info(model)
 
         # Step 5: Trainer
         trainer_class = get_trainer(config["MODEL_TYPE"], config["model"])
@@ -93,6 +106,7 @@ def train_test(dataset_name='ml-100k'):
         result = trainer.evaluate(test_data)
         result_file = results_dir / f"{model_name}_{dataset_name}_result.yaml"
         print_results(result, result_file)
+
     # Clear logs
     del_dir('saved')
     del_dir('log_tensorboard')
@@ -102,4 +116,4 @@ def train_test(dataset_name='ml-100k'):
 # MAIN FUNCTION
 # *****************************
 if __name__ == "__main__":
-    train_test('ml-100k')
+    train_test('ml-1m', tune=True)

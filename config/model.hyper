@@ -1,6 +1,6 @@
-learning_rate: loguniform -5, -2
-embedding_size: choice [64, 96, 128]
-mlp_hidden_size: choice ['[64,64]', '[128,64]', '[128,128]']
-dropout_prob: uniform 0.0, 0.5
-reg_weight: loguniform -6, -2 
-n_layers: choice [1, 2, 3]
+learning_rate: choice [1e-4, 1e-3]
+embedding_size: choice [64, 128]
+mlp_hidden_size: choice ['[64,64]', '[128,64]']
+dropout_prob: choice [0.2, 0.5]
+reg_weight: choice [1e-3]
+n_layers: choice [1, 2]
