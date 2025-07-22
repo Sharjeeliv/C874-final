@@ -22,6 +22,14 @@ from models import MODELS
 from utils import load_config, write_yaml, del_yaml, del_dir, print_results, ROOT_PATH
 
 # *****************************
+#  CONST & SETUP
+# *****************************
+MAX_EVALS =  50
+EARLY_STOP = 10
+
+
+
+# *****************************
 # HELPER FUNCTIONS
 # *****************************
 def hyperparameter_tuning(model_name, dataset):
@@ -38,8 +46,8 @@ def hyperparameter_tuning(model_name, dataset):
         objective_function=objective_function,
         algo='random',
         params_file=param_file,
-        max_evals=50,
-        early_stop=5,
+        max_evals=MAX_EVALS,
+        early_stop=EARLY_STOP,
         fixed_config_file_list=[temp_config]
     )
     # Run hyperparameter tuning
@@ -78,8 +86,7 @@ def train_test(dataset_name='ml-100k', tune=True):
             config = hyperparameter_tuning(model_name, dataset_name)
         else:
             param_dir = ROOT_PATH / 'config' / 'params'
-            # param_file = param_dir / f"{model_name}_{dataset_name}_params.yaml"
-            param_file = param_dir / f"{model_name}_ml-100k_params.yaml"
+            param_file = param_dir / f"{model_name}_{dataset_name}_params.yaml"
             if not param_file.exists(): 
                 raise FileNotFoundError(f"Parameter file not found: {param_file}")
             print("\033[92mLoading hyperparameters...\033[0m")
@@ -117,4 +124,4 @@ def train_test(dataset_name='ml-100k', tune=True):
 # MAIN FUNCTION
 # *****************************
 if __name__ == "__main__":
-    train_test('ml-1m', tune=False)
+    train_test('ml-100k', tune=True)

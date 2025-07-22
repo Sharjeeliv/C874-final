@@ -25,6 +25,16 @@ def del_dir(directory):
             else: item.unlink()
         directory.rmdir()
 
+def format_results(dataset_name):
+    result_path = ROOT_PATH / "results"
+    for file in result_path.glob(f"*{dataset_name}_*.yaml"):
+        with open(file, 'r') as f:
+            results = yaml.safe_load(f)
+        formatted_results = {k: v for k, v in results.items() if k.startswith('recall@')}
+        formatted_results['dataset'] = dataset_name
+        formatted_results['model'] = file.stem.split('_')[0]
+        print(formatted_results)
+
 
 # *****************************
 # CONFIG HELPER FUNCTIONS

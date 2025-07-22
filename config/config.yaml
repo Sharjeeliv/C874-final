@@ -7,3 +7,4 @@ checkpoint_dir: ROOT_PATH/log/saved/
 reproducibility: true
 train_batch_size: 4096
 eval_batch_size: 32768
+epochs: 100
