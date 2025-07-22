@@ -5,3 +5,5 @@ show_progress: false
 data_path: ROOT_PATH/data/
 checkpoint_dir: ROOT_PATH/log/saved/
 reproducibility: true
+train_batch_size: 4096
+eval_batch_size: 8192

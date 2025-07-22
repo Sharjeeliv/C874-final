@@ -1,0 +1,9 @@
+checkpoint_dir: C:/Users/Sharjeel Mustafa/Documents/Documents/Academic/C874/C874-final-project/log/saved/
+data_path: C:/Users/Sharjeel Mustafa/Documents/Documents/Academic/C874/C874-final-project/data/
+dataset: ml-1m
+eval_batch_size: 8192
+model: LightGCN
+reproducibility: true
+show_progress: false
+state: ERROR
+train_batch_size: 4096
