@@ -21,16 +21,16 @@ from torch_geometric.nn import SAGEConv, GATConv
 # =============================================================
 # Options: 'lightgcn' | 'sage' | 'gat'
 CONFIG = {
-    'backbone': 'gat',   # <-- switch this
-    'hidden_dim': 64,
-    'num_layers': 3,
-    'batch_size': 256,
+    'backbone': 'sage',   # <-- switch this
+    'hidden_dim': 128,
+    'num_layers': 2,
+    'batch_size': 2048,
     'num_epoch': 50,
     'epoch_size': 200,
     'lr': 1e-3,
     'lr_decay': 0.9,
     'topK': 10,
-    'lambda': 1e-6,
+    'lambda': 1e-9,
     'gat_heads': 1,          # only used when backbone == 'gat'
     'gat_dropout': 0.2       # only used when backbone == 'gat'
 }
@@ -49,6 +49,8 @@ extract_zip(zip_path, DATA_DIR)
 
 movie_path = os.path.join(DATA_DIR, 'ml-100k', 'u.item')
 rating_path = os.path.join(DATA_DIR, 'ml-100k', 'u.data')
+user_path = os.path.join(DATA_DIR, 'ml-100k', 'u.user')
+
 
 
 def preprocessing(movie_path: str, rating_path: str):
@@ -70,7 +72,7 @@ def preprocessing(movie_path: str, rating_path: str):
         movies = rating_df.movieId.map(movie_mapping).add(num_users).tolist()  # offset items
         ratings = rating_df.rating.values
 
-        mask = ratings >= 4.0
+        mask = ratings >= 3.0
         user_list = [u for u, keep in zip(users, mask) if keep]
         item_list = [m for m, keep in zip(movies, mask) if keep]
 
@@ -290,6 +292,32 @@ class RecommenderModel(nn.Module):
 # 7. Evaluation
 # =============================================================
 
+def _metrics_at_k(topk, true_items, k):
+    hit = 1.0 if any(item in true_items for item in topk) else 0.0
+
+    # precision / recall
+    inter = len(set(topk) & true_items)
+    precision = inter / k
+    recall = inter / len(true_items)
+
+    # MRR
+    rr = 0.0
+    for rank, item in enumerate(topk, start=1):
+        if item in true_items:
+            rr = 1.0 / rank
+            break
+
+    # NDCG (binary relevance)
+    dcg = 0.0
+    for rank, item in enumerate(topk, start=1):
+        if item in true_items:
+            dcg += 1.0 / np.log2(rank + 1)
+    ideal_len = min(len(true_items), k)
+    idcg = sum(1.0 / np.log2(i + 1) for i in range(1, ideal_len + 1)) or 1.0
+    ndcg = dcg / idcg
+
+    return precision, recall, hit, rr, ndcg
+
 def evaluate(model: RecommenderModel,
              eval_edge_index: torch.Tensor,
              mask_edge_indices: list[torch.Tensor],
@@ -301,18 +329,18 @@ def evaluate(model: RecommenderModel,
     with torch.no_grad():
         u_final, u0, i_final, i0 = model.get_embeddings()
 
-        # Loss on eval edges (BPR with structured negative sampling)
+        # BPR loss on eval edges
         edges = structured_negative_sampling(eval_edge_index, contains_neg_self_loops=False)
         users_idx, pos_idx, neg_idx = edges[0], edges[1], edges[2]
         pos_idx = pos_idx - num_users
         neg_idx = neg_idx - num_users
-
         loss = bpr_loss(u_final[users_idx], u0[users_idx],
                         i_final[pos_idx], i0[pos_idx],
                         i_final[neg_idx], i0[neg_idx],
                         reg_lambda).item()
 
-        scores = torch.matmul(u_final, i_final.t())  # [U, I]
+        # Scores [U, I]
+        scores = torch.matmul(u_final, i_final.t())
 
         # mask seen items
         masked = defaultdict(set)
@@ -324,19 +352,26 @@ def evaluate(model: RecommenderModel,
             if items:
                 scores[u, torch.tensor(list(items), device=scores.device)] = float('-inf')
 
+        # Ground-truth positives for this split
         gt = build_user_pos_dict(eval_edge_index, num_users)
-        recalls, precisions = [], []
+
+        precs, recs, hits, mrrs, ndcgs = [], [], [], [], []
         for u, true_items in gt.items():
             if not true_items:
                 continue
-            topk = scores[u].topk(k).indices.tolist()
-            hit = len(set(topk) & true_items)
-            recalls.append(hit / len(true_items))
-            precisions.append(hit / k)
+            topk_idx = scores[u].topk(k).indices.tolist()
+            p, r, h, rr, nd = _metrics_at_k(topk_idx, true_items, k)
+            precs.append(p); recs.append(r); hits.append(h); mrrs.append(rr); ndcgs.append(nd)
 
-        if len(recalls) == 0:
-            return loss, 0.0, 0.0
-        return loss, float(np.mean(recalls)), float(np.mean(precisions))
+        if len(precs) == 0:
+            return loss, 0.0, 0.0, 0.0, 0.0, 0.0
+
+        return (loss,
+                float(np.mean(recs)),
+                float(np.mean(precs)),
+                float(np.mean(hits)),
+                float(np.mean(mrrs)),
+                float(np.mean(ndcgs)))
 
 
 # =============================================================
@@ -382,25 +417,30 @@ def run_train():
             loss.backward()
             optimizer.step()
 
-        val_loss, val_recall, val_precision = evaluate(model,
-                                                       val_edge_index,
-                                                       [train_edge_index],
-                                                       CONFIG['topK'],
-                                                       CONFIG['lambda'],
-                                                       num_users,
-                                                       num_movies)
-        print(f"Epoch {epoch:02d} | train_loss={loss.item():.4f} | val_loss={val_loss:.4f} | R@{CONFIG['topK']}={val_recall:.4f} | P@{CONFIG['topK']}={val_precision:.4f}")
+        val_loss, val_recall, val_precision, val_hit, val_mrr, val_ndcg = evaluate(
+            model, val_edge_index, [train_edge_index], CONFIG['topK'],
+            CONFIG['lambda'], num_users, num_movies
+        )
+        print(f"Epoch {epoch:02d} | train_loss={loss.item():.4f} | "
+              f"val_loss={val_loss:.4f} | "
+              f"R@{CONFIG['topK']}={val_recall:.4f} | "
+              f"P@{CONFIG['topK']}={val_precision:.4f} | "
+              f"Hit@{CONFIG['topK']}={val_hit:.4f} | "
+              f"MRR@{CONFIG['topK']}={val_mrr:.4f} | "
+              f"NDCG@{CONFIG['topK']}={val_ndcg:.4f}")
         scheduler.step()
 
     # Test
-    test_loss, test_recall, test_precision = evaluate(model,
-                                                      test_edge_index.to(DEVICE),
-                                                      [train_edge_index, val_edge_index],
-                                                      CONFIG['topK'],
-                                                      CONFIG['lambda'],
-                                                      num_users,
-                                                      num_movies)
-    print(f"Test | loss={test_loss:.4f} | R@{CONFIG['topK']}={test_recall:.4f} | P@{CONFIG['topK']}={test_precision:.4f}")
+    test_loss, test_recall, test_precision, test_hit, test_mrr, test_ndcg = evaluate(
+        model, test_edge_index.to(DEVICE), [train_edge_index, val_edge_index],
+        CONFIG['topK'], CONFIG['lambda'], num_users, num_movies
+    )
+    print(f"Test | loss={test_loss:.4f} | "
+          f"R@{CONFIG['topK']}={test_recall:.4f} | "
+          f"P@{CONFIG['topK']}={test_precision:.4f} | "
+          f"Hit@{CONFIG['topK']}={test_hit:.4f} | "
+          f"MRR@{CONFIG['topK']}={test_mrr:.4f} | "
+          f"NDCG@{CONFIG['topK']}={test_ndcg:.4f}")
 
 
 # =============================================================
@@ -412,32 +452,43 @@ def predict(user_raw_id: int, topK: int = 10):
     with torch.no_grad():
         if user_raw_id not in user_mapping:
             raise ValueError('Unknown user id')
+
         u = user_mapping[user_raw_id]
         u_final, _, i_final, _ = model.get_embeddings()
         scores = (i_final @ u_final[u]).cpu()
-        # mask seen items
+
+        # mask seen
         seen = set()
         for d in [user_pos_train, user_pos_val, user_pos_test]:
             seen.update(d.get(u, set()))
         if seen:
             scores[list(seen)] = float('-inf')
-        top_items = scores.topk(topK).indices.tolist()
 
+        top_items = scores.topk(topK).indices.tolist()
         inv_movie_map = {v: k for k, v in movie_mapping.items()}
+
+        # ---- titles & genres ----
         if movie_path.endswith('u.item'):
-            df_movies = pd.read_csv(movie_path, sep='|', header=None, encoding='latin-1', usecols=[0,1],
-                                     names=['movieId','title'])
-            titles = pd.Series(df_movies.title.values, index=df_movies.movieId).to_dict()
-            genres = defaultdict(str)  # 100k has genres as one-hot columns; skip for simplicity
+            genre_cols = [
+                'unknown','Action','Adventure','Animation',"Children's",'Comedy','Crime',
+                'Documentary','Drama','Fantasy','Film-Noir','Horror','Musical','Mystery',
+                'Romance','Sci-Fi','Thriller','War','Western'
+            ]
+            cols = ['movieId','title','release','video','imdb'] + genre_cols
+            df_movies = pd.read_csv(movie_path, sep='|', header=None, encoding='latin-1', names=cols)
+            titles = df_movies.set_index('movieId')['title'].to_dict()
+            genres_map = (df_movies.set_index('movieId')[genre_cols]
+                                   .apply(lambda r: '|'.join([g for g in genre_cols if r[g] == 1]), axis=1)
+                                   .to_dict())
         else:
             df_movies = pd.read_csv(movie_path)
             titles = pd.Series(df_movies.title.values, index=df_movies.movieId).to_dict()
-            genres = pd.Series(df_movies.genres.values, index=df_movies.movieId).to_dict()
+            genres_map = pd.Series(df_movies.genres.values, index=df_movies.movieId).to_dict()
 
         print(f'Top {topK} recommendations for user {user_raw_id}:')
         for idx in top_items:
             ml_id = inv_movie_map[idx]
-            print(f'- {titles[ml_id]} ({genres[ml_id]})')
+            print(f'- {titles[ml_id]} ({genres_map.get(ml_id)})')
 
 
 if __name__ == '__main__':
