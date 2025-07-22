@@ -1,4 +1,10 @@
 \data
+\ml-100k
+\ml-latest-small
+\MLdata
+ml-100k.zip
+ml-latest-small.zip
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

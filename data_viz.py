@@ -1,361 +1,216 @@
 import argparse
-import json
 import os
-import textwrap
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import networkx as nx
-from collections import Counter, defaultdict
-from itertools import combinations
 
-def load_data(users_path, games_path, recs_path, meta_path):
-    direc = 'data/'
-    users = pd.read_csv(direc+users_path)
-    games = pd.read_csv(direc+games_path)
-    recs = pd.read_csv(direc+recs_path, parse_dates=['date'])
+plt.style.use('seaborn-v0_8-whitegrid')
 
-    # Try standard JSON load; if it fails, parse as JSON lines
-    try:
-        with open(direc+meta_path, 'r', encoding='utf-8') as f:
-            meta = json.load(f)
-    except json.JSONDecodeError:
-        meta = {}
-        with open(direc+meta_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                    meta.update(obj)
-                except json.JSONDecodeError:
-                    continue
-    return users, games, recs, meta
 
-"""
-def plot_user_stats(users):
-    # number of products per user
-    plt.figure()
-    plt.hist(users['products'], bins=50, log=True)
-    plt.xlabel('Products per user')
-    plt.ylabel('Count of users')
-    plt.title('Distribution of Products Owned')
-    plt.savefig("Figures/prodcutdist")
-    plt.clf()
+def ensure_dir(path: str):
+    os.makedirs(path, exist_ok=True)
 
-    # number of reviews per user
-    plt.figure()
-    plt.hist(users['reviews'], bins=20, log=True)
-    plt.xlabel('Reviews written per user')
-    plt.ylabel('Count of users')
-    plt.title('Distribution of Reviews Written')
-    plt.savefig("Figures/reviewdist")
-    plt.clf()
 
-def plot_game_metadata(games):
-    # Release year histogram
-    years = pd.to_datetime(games['date_release'], errors='coerce').dt.year.dropna().astype(int)
-    plt.figure()
-    plt.hist(years, bins=range(years.min(), years.max()+2), edgecolor='black')
-    plt.xlabel('Release Year')
-    plt.ylabel('Count of Games')
-    plt.title('Game Release Years')
-    plt.savefig("Figures/gameyears")
-    plt.clf()
-
-    # Price distribution (final)
-    plt.figure()
-    plt.hist(games['price_final'], bins=50, log=True)
-    plt.xlabel('Final Price (USD)')
-    plt.ylabel('Count of Games')
-    plt.title('Distribution of Final Prices')
-    plt.savefig("Figures/pricedist")
-    plt.clf()
-
-    # Discount distribution
-    plt.figure()
-    plt.hist(games['discount'], bins=20)
-    plt.xlabel('Discount (%)')
-    plt.ylabel('Count of Games')
-    plt.title('Discount Percentage Distribution')
-    plt.savefig("Figures/discountdist")
-    plt.clf()
-
-    # Positive review ratio
-    plt.figure()
-    plt.hist(games['positive_ratio'], bins=20)
-    plt.xlabel('Positive Review Ratio (%)')
-    plt.ylabel('Count of Games')
-    plt.title('Positive Review Ratio Distribution')
-    plt.savefig("Figures/postivereviewdist")
-    plt.clf()
-
-    # Platform support counts
-    plt.figure()
-    platforms = ['win', 'mac', 'linux', 'steam_deck']
-    support = [games[plat].sum() for plat in platforms]
-    plt.bar(platforms, support)
-    plt.ylabel('Number of Games Supported')
-    plt.title('OS / Steam Deck Support')
-    plt.savefig("Figures/OSsupportdist")
-    plt.clf()
-
-def plot_recommendation_stats(recs):
-    # Ensure date is datetime and set as index for time-based rolling
-    recs = recs.copy()
-    recs['date'] = pd.to_datetime(recs['date'], errors='coerce')
-    recs.sort_values('date', inplace=True)
-    recs.set_index('date', inplace=True)
-
-    plt.figure()
-    plt.hist(recs['hours'].dropna(), bins=50, log=True)
-    plt.xlabel('Hours Played')
-    plt.ylabel('Count of Reviews')
-    plt.title('Distribution of Hours Played')
-    plt.savefig("Figures/hoursplayed")
-    plt.clf()
-
-    fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-    axs[0].hist(recs['helpful'].dropna(), bins=20)
-    axs[0].set_title('Helpful Votes')
-    axs[0].set_xlabel('Helpful')
-    axs[0].set_ylabel('Count')
-    axs[1].hist(recs['funny'].dropna(), bins=20)
-    axs[1].set_title('Funny Votes')
-    axs[1].set_xlabel('Funny')
-    axs[1].set_ylabel('Count')
-    plt.tight_layout()
-    plt.savefig("Figures/funnyvshelpful")
-    plt.clf()
-
-    # Rolling 30-day mean of boolean is_recommended
-    if recs['is_recommended'].dtype != 'int':
-        recs['is_recommended'] = recs['is_recommended'].astype(int)
-    roll = recs['is_recommended'].rolling('30D').mean()
-    plt.figure()
-    plt.plot(roll.index, roll.values)
-    plt.xlabel('Date')
-    plt.ylabel('30-day Rolling % Recommended')
-    plt.title('Temporal Trend of Recommendations')
-    plt.savefig("Figures/recstemporal")
-    plt.clf()
-"""
-
-def plot_rating_dist(recs):
-    counts = recs['is_recommended'].value_counts()
-    sizes = [counts.get(True, 0), counts.get(False, 0)]
-    labels = ['Recommended', 'Not Recommended']
-    colors = ['tab:cyan', 'tab:red']
-    explode = (0.05, 0.05)  # offset both slices slightly
-
-    plt.figure(figsize=(8, 8))
-    wedges, texts, autotexts = plt.pie(
-        sizes,
-        explode=explode,
-        labels=labels,
-        colors=colors,
-        autopct='%1.1f%%',
-        startangle=90,
-        pctdistance=0.80,
-        wedgeprops=dict(width=0.3, edgecolor='white'),
-        textprops=dict(color='black', fontsize=12, weight='bold'),
-        shadow=True
+def load_data(users_path: str, movies_path: str, ratings_path: str):
+    """Load ml-100k files and return tidy DataFrames with consistent column names."""
+    # u.user: user id | age | gender | occupation | zip code
+    users = pd.read_csv(
+        users_path,
+        sep='|',
+        header=None,
+        names=['UserID', 'Age', 'Gender', 'Occupation', 'Zip']
     )
 
-    # Draw a circle at the center to make it a donut
-    centre_circle = plt.Circle((0, 0), 0.50, fc='white')
-    plt.gca().add_artist(centre_circle)
-
-    # Legend outside
-    plt.legend(
-        wedges,
-        labels,
-        title="Review Label",
-        loc="center",
-        bbox_to_anchor=(1, 0, 0.5, 1)
+    # u.item: movie id | title | release date | video release date | IMDb URL | 19 genre flags
+    genre_cols = [
+        'unknown', 'Action', 'Adventure', 'Animation', "Children's", 'Comedy', 'Crime',
+        'Documentary', 'Drama', 'Fantasy', 'Film-Noir', 'Horror', 'Musical', 'Mystery',
+        'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western'
+    ]
+    movies = pd.read_csv(
+        movies_path,
+        sep='|',
+        header=None,
+        encoding='latin-1',
+        names=['MovieID', 'Title', 'ReleaseDate', 'VideoReleaseDate', 'IMDbURL'] + genre_cols
     )
 
-    plt.title('Recommendation Label Distribution', fontsize=14, weight='bold')
-    plt.axis('equal')  # keep it circular
+    # Add a joined Genres string for convenience (used by a couple of plots)
+    movies['Genres'] = movies[genre_cols].apply(
+        lambda row: '|'.join([g for g in genre_cols if row[g] == 1]), axis=1
+    )
 
-    out_path = os.path.join('Figures', "label_distribution_pie.png")
+    # u.data: user id | item id | rating | timestamp
+    ratings = pd.read_csv(
+        ratings_path,
+        sep='\t',
+        header=None,
+        names=['UserID', 'MovieID', 'Rating', 'Timestamp']
+    )
+
+    return users, movies, ratings
+
+
+def plot_rating_histogram(ratings: pd.DataFrame, out_dir: str):
+    ensure_dir(out_dir)
+    bins = np.arange(ratings['Rating'].min() - 0.5, ratings['Rating'].max() + 1)
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(ratings['Rating'], bins=bins, color='tab:blue', edgecolor='white', alpha=0.8)
+    ax.set_xlabel('Rating', fontsize=12)
+    ax.set_ylabel('Count', fontsize=12)
+    ax.set_title('Distribution of Ratings', fontsize=14, weight='bold')
+    ax.grid(axis='y', alpha=0.6)
     plt.tight_layout()
-    plt.savefig(out_path, dpi=150)
-    plt.close()
+    fig.savefig(os.path.join(out_dir, 'rating_distribution.png'), dpi=150)
+    plt.close(fig)
 
-def plot_bipartite_graph_stats(recs, games, sample_size=10000, top_n=30, min_user_overlap_games=2,
-        sample_users=None,
-        normalize=None,      # None | "jaccard" | "cosine"
-        out_dir="Figures",
-        max_label_len=20,
-        include_id=False, wrap_labels=False, dpi=150):
 
-    subsample = recs.sample(n=min(sample_size, len(recs)), random_state=42)
-
-    G = nx.Graph()
-    # preserve bipartite labels
-    for uid in subsample['user_id'].unique():
-        G.add_node(uid, bipartite='user')
-    for aid in subsample['app_id'].unique():
-        G.add_node(aid, bipartite='game')
-    G.add_edges_from(zip(subsample['user_id'], subsample['app_id']))
-
-    # separate nodes by attribute instead of sets()
-    user_nodes = [n for n,d in G.nodes(data=True) if d.get('bipartite')=='user']
-    game_nodes = [n for n,d in G.nodes(data=True) if d.get('bipartite')=='game']
-    user_degs = [G.degree(u) for u in user_nodes]
-    game_degs = [G.degree(i) for i in game_nodes]
-
-    plt.figure()
-    plt.hist(user_degs, bins=50, log=True)
-    plt.xlabel('User Degree')
-    plt.ylabel('Count')
-    plt.title('User Degree Distribution (Subsampled)')
-    #plt.savefig("Figures/userdist")
-    plt.clf()
-
-    plt.figure()
-    plt.hist(game_degs, bins=50, log=True)
-    plt.xlabel('Game Degree')
-    plt.ylabel('Count')
-    plt.title('Game Degree Distribution (Subsampled)')
-    #plt.savefig("Figures/gamedist")
-    plt.clf()
-
-    # --- Mapping app_id -> title ---
-    id2title = dict(zip(games['app_id'], games['title']))
-
-    # 1. Positive interactions only
-    pos = recs[recs['is_recommended'] == True]
-    if pos.empty:
-        print("[CoPlay] No positive interactions found.")
-        return
-
-    # 2. Top-N games
-    game_counts = pos['app_id'].value_counts()
-    top_games = game_counts.nlargest(top_n).index.tolist()
-    actual_top_n = len(top_games)
-    print(f"[CoPlay] Using top {actual_top_n} games for heatmap.")
-
-    # 3. Per-user restricted lists
-    user_games = defaultdict(list)
-    sub = pos[pos['app_id'].isin(top_games)][['user_id', 'app_id']]
-    for uid, gid in zip(sub['user_id'].values, sub['app_id'].values):
-        user_games[uid].append(gid)
-
-    # Filter users by min overlap
-    filtered_users = [u for u, glist in user_games.items()
-                      if len(set(glist)) >= min_user_overlap_games]
-
-    # Optional sampling
-    if sample_users is not None and len(filtered_users) > sample_users:
-        rng = np.random.default_rng(42)
-        filtered_users = rng.choice(filtered_users, size=sample_users, replace=False)
-        print(f"[CoPlay] Sampled {len(filtered_users)} users (from {len(user_games)} candidates).")
-    else:
-        print(f"[CoPlay] Using {len(filtered_users)} qualifying users.")
-
-    if len(filtered_users) == 0:
-        print("[CoPlay] No users meet the overlap criterion; aborting heatmap.")
-        return
-
-    # 4. Build index map & count
-    idx_map = {g: i for i, g in enumerate(top_games)}
-    co_matrix = np.zeros((actual_top_n, actual_top_n), dtype=np.int32)
-    game_user_count = np.zeros(actual_top_n, dtype=np.int32)
-
-    for u in filtered_users:
-        glist = list({g for g in user_games[u] if g in idx_map})
-        for g in glist:
-            game_user_count[idx_map[g]] += 1
-        if len(glist) > 1:
-            for g1, g2 in combinations(glist, 2):
-                i, j = idx_map[g1], idx_map[g2]
-                co_matrix[i, j] += 1
-                co_matrix[j, i] += 1
-
-    # 5. Normalization (optional)
-    if normalize == "jaccard":
-        a = game_user_count.reshape(-1, 1)
-        denom = (a + a.T - co_matrix).astype(float)
-        denom[denom == 0] = 1.0
-        norm_matrix = co_matrix / denom
-        metric_label = "Jaccard Similarity"
-        fname_suffix = "jaccard"
-    elif normalize == "cosine":
-        a = game_user_count.reshape(-1, 1)
-        denom = np.sqrt(a * a.T).astype(float)
-        denom[denom == 0] = 1.0
-        norm_matrix = co_matrix / denom
-        metric_label = "Cosine Similarity"
-        fname_suffix = "cosine"
-    else:
-        norm_matrix = co_matrix
-        metric_label = "Shared Users"
-        fname_suffix = "shared"
-
-    np.fill_diagonal(norm_matrix, 0)
-
-    # 6. Prepare labels (titles)
-    def format_label(app_id):
-        title = id2title.get(app_id, str(app_id))
-        if wrap_labels:
-            # crude wrap
-            wrapped = "\n".join(textwrap.wrap(title, width=max_label_len))
-            truncated = wrapped
-        else:
-            truncated = (title[:max_label_len] + "…") if len(title) > max_label_len else title
-        if include_id:
-            truncated += f" ({app_id})"
-        return truncated
-
-    labels = [format_label(g) for g in top_games]
-
-    # 7. Plot
-    plt.figure(figsize=(max(8, actual_top_n * 0.4), max(8, actual_top_n * 0.4)))
-    im = plt.imshow(norm_matrix, cmap="viridis", interpolation="nearest")
-    plt.xticks(range(actual_top_n), labels, rotation=90)
-    plt.yticks(range(actual_top_n), labels)
-    plt.colorbar(im, label=metric_label)
-    plt.title(f"Co-play Heatmap (Top {actual_top_n} Games) — {metric_label}")
+def plot_ratings_per_user(ratings: pd.DataFrame, out_dir: str):
+    ensure_dir(out_dir)
+    counts = ratings.groupby('UserID').size()
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(counts, bins=50, color='tab:orange', edgecolor='white', alpha=0.8, log=True)
+    ax.set_xlabel('Number of Ratings per User', fontsize=12)
+    ax.set_ylabel('Count of Users (log scale)', fontsize=12)
+    ax.set_title('Ratings per User', fontsize=14, weight='bold')
+    ax.grid(axis='y', alpha=0.6)
     plt.tight_layout()
+    fig.savefig(os.path.join(out_dir, 'ratings_per_user.png'), dpi=150)
+    plt.close(fig)
 
-    out_path = os.path.join(out_dir, f"co_play_heatmap_top{actual_top_n}_{fname_suffix}.png")
-    plt.savefig(out_path, dpi=dpi)
-    plt.close()
-    print(f"[CoPlay] Saved heatmap with titles to {out_path}")
 
+def plot_ratings_per_movie(ratings: pd.DataFrame, out_dir: str):
+    ensure_dir(out_dir)
+    counts = ratings.groupby('MovieID').size()
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(counts, bins=50, color='tab:green', edgecolor='white', alpha=0.8, log=True)
+    ax.set_xlabel('Number of Ratings per Movie', fontsize=12)
+    ax.set_ylabel('Count of Movies (log scale)', fontsize=12)
+    ax.set_title('Ratings per Movie', fontsize=14, weight='bold')
+    ax.grid(axis='y', alpha=0.6)
+    plt.tight_layout()
+    fig.savefig(os.path.join(out_dir, 'ratings_per_movie.png'), dpi=150)
+    plt.close(fig)
+
+
+def plot_user_demographics(users: pd.DataFrame, out_dir: str):
+    ensure_dir(out_dir)
+
+    # Age distribution (raw ages, 5-year bins)
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(users['Age'], bins=range(users['Age'].min(), users['Age'].max() + 5, 5),
+            color='tab:purple', edgecolor='white', alpha=0.8)
+    ax.set_xlabel('Age', fontsize=12)
+    ax.set_ylabel('Count of Users', fontsize=12)
+    ax.set_title('User Age Distribution', fontsize=14, weight='bold')
+    ax.grid(axis='y', alpha=0.6)
+    plt.tight_layout()
+    fig.savefig(os.path.join(out_dir, 'age_distribution.png'), dpi=150)
+    plt.close(fig)
+
+    # Gender distribution
+    fig, ax = plt.subplots(figsize=(4, 4))
+    gender_counts = users['Gender'].value_counts().reindex(['M', 'F'])
+    ax.bar(gender_counts.index, gender_counts.values,
+           color=['tab:blue', 'tab:red'], edgecolor='white', alpha=0.9)
+    ax.set_xlabel('Gender', fontsize=12)
+    ax.set_ylabel('Count of Users', fontsize=12)
+    ax.set_title('Gender Distribution', fontsize=14, weight='bold')
+    for i, v in enumerate(gender_counts.values):
+        ax.text(i, v + v * 0.01, str(v), ha='center', va='bottom', fontsize=10)
+    plt.tight_layout()
+    fig.savefig(os.path.join(out_dir, 'gender_distribution.png'), dpi=150)
+    plt.close(fig)
+
+    # Occupation distribution (top 10) – occupations are already strings
+    occ_counts = users['Occupation'].value_counts().nlargest(10)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.barh(occ_counts.index[::-1], occ_counts.values[::-1],
+            color='tab:cyan', edgecolor='white', alpha=0.8)
+    ax.set_xlabel('Count of Users', fontsize=12)
+    ax.set_title('Top 10 Occupations', fontsize=14, weight='bold')
+    plt.tight_layout()
+    fig.savefig(os.path.join(out_dir, 'occupation_distribution.png'), dpi=150)
+    plt.close(fig)
+
+
+def plot_genre_distribution(movies: pd.DataFrame, out_dir: str):
+    ensure_dir(out_dir)
+    # Using one-hot genre columns if present
+    genre_cols = [c for c in movies.columns if c not in
+                  ['MovieID', 'Title', 'ReleaseDate', 'VideoReleaseDate', 'IMDbURL', 'Genres']]
+    # Filter to only the 0/1 genre columns
+    genre_cols = [c for c in genre_cols if movies[c].dropna().isin([0, 1]).all()]
+    if genre_cols:
+        genre_counts = movies[genre_cols].sum().sort_values(ascending=False)
+        labels = genre_counts.index
+        values = genre_counts.values
+    else:
+        # fallback if something odd happened
+        all_genres = movies['Genres'].str.split('|').explode()
+        genre_counts = all_genres.value_counts()
+        labels = genre_counts.index
+        values = genre_counts.values
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.barh(labels[::-1], values[::-1], color='tab:olive', edgecolor='white', alpha=0.8)
+    ax.set_xlabel('Count of Movies', fontsize=12)
+    ax.set_title('Movie Genre Distribution', fontsize=14, weight='bold')
+    plt.tight_layout()
+    fig.savefig(os.path.join(out_dir, 'genre_distribution.png'), dpi=150)
+    plt.close(fig)
+
+
+def plot_avg_rating_by_age_gender(ratings: pd.DataFrame, users: pd.DataFrame, out_dir: str = "Figures"):
+    ensure_dir(out_dir)
+    df = ratings.merge(users, on='UserID')
+    # Bin ages into groups similar to ML-1M but computed from raw ages
+    bins = [0, 17, 24, 34, 44, 49, 55, 100]
+    labels = ["Under 18", "18-24", "25-34", "35-44", "45-49", "50-55", "56+"]
+    df['age_group'] = pd.cut(df['Age'], bins=bins, labels=labels, right=True, include_lowest=True)
+
+    pivot = (df.pivot_table(index='age_group', columns='Gender', values='Rating', observed=False,
+                            aggfunc='mean')
+               .reindex(labels)[['M', 'F']])
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.imshow(pivot, cmap='viridis', aspect='auto')
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('Avg Rating', fontsize=12)
+    ax.set_xticks(np.arange(len(pivot.columns)))
+    ax.set_xticklabels(pivot.columns, fontsize=10)
+    ax.set_yticks(np.arange(len(pivot.index)))
+    ax.set_yticklabels(pivot.index, fontsize=10)
+    ax.set_xlabel('Gender', fontsize=12)
+    ax.set_ylabel('Age Group', fontsize=12)
+    ax.set_title('Average Rating by Age & Gender', fontsize=14, weight='bold')
+
+    for i in range(pivot.shape[0]):
+        for j in range(pivot.shape[1]):
+            val = pivot.iat[i, j]
+            ax.text(j, i, f"{val:.2f}", ha='center', va='center', color='white', fontsize=9)
+    plt.tight_layout()
+    fig.savefig(os.path.join(out_dir, 'avg_rating_age_gender_heatmap.png'), dpi=150)
+    plt.close(fig)
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument('--users', required=False)
-    p.add_argument('--games', required=False)
-    p.add_argument('--recs', required=False)
-    p.add_argument('--meta', required=False)
-    args = p.parse_args()
+    parser = argparse.ArgumentParser(description="EDA for MovieLens-100K dataset")
+    parser.add_argument('--users', default='ml-100k/u.user', help='Path to u.user')
+    parser.add_argument('--movies', default='ml-100k/u.item', help='Path to u.item')
+    parser.add_argument('--ratings', default='ml-100k/u.data', help='Path to u.data')
+    parser.add_argument('--out_dir', default='Figures-ml100k', help='Directory to save figures')
+    args = parser.parse_args()
 
-    users, games, recs, meta = load_data('users.csv', 'games.csv'
-                                         , 'recommendations.csv', 'games_metadata.json')
+    users, movies, ratings = load_data(args.users, args.movies, args.ratings)
 
+    plot_rating_histogram(ratings, args.out_dir)
+    plot_ratings_per_user(ratings, args.out_dir)
+    plot_ratings_per_movie(ratings, args.out_dir)
+    plot_user_demographics(users, args.out_dir)
+    plot_genre_distribution(movies, args.out_dir)
+    plot_avg_rating_by_age_gender(ratings, users, args.out_dir)
 
-    #plot_user_stats(users)
-    #plot_game_metadata(games)
-    #plot_recommendation_stats(recs)
-    plot_rating_dist(recs)
-    """plot_bipartite_graph_stats(recs,
-        games,
-        top_n=30,
-        min_user_overlap_games=6,
-        sample_users=3709628,  # adjust or None
-        normalize=None,  # "cosine", "jaccard",  or None
-        out_dir="Figures",
-        max_label_len=20,
-        include_id=False,
-        wrap_labels=False
-    )"""
 
 if __name__ == '__main__':
     main()
