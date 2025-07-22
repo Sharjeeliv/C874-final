@@ -78,7 +78,8 @@ def train_test(dataset_name='ml-100k', tune=True):
             config = hyperparameter_tuning(model_name, dataset_name)
         else:
             param_dir = ROOT_PATH / 'config' / 'params'
-            param_file = param_dir / f"{model_name}_{dataset_name}_params.yaml"
+            # param_file = param_dir / f"{model_name}_{dataset_name}_params.yaml"
+            param_file = param_dir / f"{model_name}_ml-100k_params.yaml"
             if not param_file.exists(): 
                 raise FileNotFoundError(f"Parameter file not found: {param_file}")
             print("\033[92mLoading hyperparameters...\033[0m")
@@ -116,4 +117,4 @@ def train_test(dataset_name='ml-100k', tune=True):
 # MAIN FUNCTION
 # *****************************
 if __name__ == "__main__":
-    train_test('ml-1m', tune=True)
+    train_test('ml-1m', tune=False)
