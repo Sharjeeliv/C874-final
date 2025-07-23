@@ -4,9 +4,9 @@ from recbole.model.context_aware_recommender import FM, DeepFM, WideDeep
 
 MODELS = {
     # 'BPR': BPR,
-    'NGCF': NGCF
+    # 'NGCF': NGCF,
     # 'LightGCN': LightGCN,
-    # 'ItemKNN': ItemKNN,
+    'ItemKNN': ItemKNN,
     # 'NeuMF': NeuMF,
     # 'FM': FM,
     # 'DeepFM': DeepFM,

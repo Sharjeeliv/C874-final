@@ -27,8 +27,6 @@ from utils import load_config, write_yaml, del_yaml, del_dir, print_results, ROO
 MAX_EVALS =  50
 EARLY_STOP = 10
 
-
-
 # *****************************
 # HELPER FUNCTIONS
 # *****************************
@@ -126,4 +124,4 @@ def train_test(dataset_name='ml-100k', tune=True, use_100k=False):
 # MAIN FUNCTION
 # *****************************
 if __name__ == "__main__":
-    train_test('ml-1m', tune=False, use_100k=True)
+    train_test('ml-100k', tune=True, use_100k=False)
